@@ -1,18 +1,25 @@
 import requests
 
-# Replace with your actual server URL if deployed (e.g., on Heroku)
+# Update with your local or Render URL
 url = "http://127.0.0.1:5000/predict"
 
-# Sample test input data (replace with different test cases as needed)
+# Sample test input structured by milestone
 data = {
-    "Req_1": 10000, "Exp_1": 100,
-    "Req_2": 5000, "Exp_2": 500,
-    "Req_3": 2000, "Exp_3": 200,
-    "Receipts_Uploaded": 0
+   "donation_amount": 10000,
+  "milestones": [
+    { "Req": 5000, "Exp": 1000, "Receipts_Uploaded": 0 },
+    { "Req": 3000, "Exp": 200, "Receipts_Uploaded": 0 },
+    { "Req": 2000, "Exp": 100, "Receipts_Uploaded": 0 }
+  ]
 }
 
-# Make POST request to the API
 response = requests.post(url, json=data)
 
-# Print the response from the API
-print("API Response:", response.json())
+# Display response
+if response.ok:
+    res_json = response.json()
+    print("🔍 Prediction:", "Fraud" if res_json["is_fraud"] == 1 else "Not Fraud")
+    print("💬 Explanation:", res_json.get("message", "No explanation provided."))
+    print("📊 ML Input Used:", res_json["ml_input"])
+else:
+    print("❌ Error:", response.text)
