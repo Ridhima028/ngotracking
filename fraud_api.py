@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 import pandas as pd
 import joblib
@@ -9,57 +10,60 @@ model = joblib.load('fraud_rf_model.pkl')
 def home():
     return "✅ Fraud Detection API is running!"
 
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.json
-        df = pd.DataFrame([data])
 
-        # Feature engineering
-        df['Deviation_1'] = df['Req_1'] - df['Exp_1']
-        df['Deviation_2'] = df['Req_2'] - df['Exp_2']
-        df['Deviation_3'] = df['Req_3'] - df['Exp_3']
-        df['Total_Requested'] = df['Req_1'] + df['Req_2'] + df['Req_3']
-        df['Total_Used'] = df['Exp_1'] + df['Exp_2'] + df['Exp_3']
-        df['Total_Deviation'] = df['Total_Requested'] - df['Total_Used']
-        df['Deviation_Percent'] = (df['Total_Deviation'] / (df['Total_Requested'] + 1)) * 100
+        milestones = data.get("milestones")  # list of dicts
+        donation_amt = data.get("donation_amount")
 
-        df['req_diff_1_2'] = df['Req_2'] - df['Req_1']
-        df['req_diff_2_3'] = df['Req_3'] - df['Req_2']
+        if not milestones or not donation_amt:
+            return jsonify({"error": "Missing milestones or donation_amount"}), 400
 
-        # Feature order for model
+        total_req = sum(m["Req"] for m in milestones)
+        if total_req == 0:
+            return jsonify({"error": "Total request cannot be 0"}), 400
+
+        multiplier = donation_amt / total_req
+
+        ml_input = {}
+        for i, m in enumerate(milestones, 1):
+            req_scaled = m["Req"] * multiplier
+            exp_scaled = m["Exp"] * multiplier
+            ml_input[f"Req_{i}"] = req_scaled
+            ml_input[f"Exp_{i}"] = exp_scaled
+
+        ml_input["Receipts_Uploaded"] = int(all(m["Receipts_Uploaded"] for m in milestones))
+
+        ml_input["Deviation_1"] = ml_input["Req_1"] - ml_input["Exp_1"]
+        ml_input["Deviation_2"] = ml_input["Req_2"] - ml_input["Exp_2"]
+        ml_input["Deviation_3"] = ml_input["Req_3"] - ml_input["Exp_3"]
+
         features = [
-            'Req_1', 'Exp_1', 'Deviation_1',
-            'Req_2', 'Exp_2', 'Deviation_2',
-            'Req_3', 'Exp_3', 'Deviation_3',
+            'Req_1', 'Exp_1','Deviation_1',
+            'Req_2', 'Exp_2','Deviation_2',
+            'Req_3', 'Exp_3','Deviation_3',
             'Receipts_Uploaded'
         ]
-        df_model = df[features]
 
-        # Predict fraud
-        prediction = model.predict(df_model)[0]
+        df = pd.DataFrame([ml_input])
+        prediction = model.predict(df[features])[0]
 
-        # Build explanation
-        reasons = []
-
-        if df['Deviation_Percent'][0] > 80:
-            reasons.append("Deviation Percent is above 80%")
-        elif df['Deviation_Percent'][0] > 50:
-            reasons.append("Deviation Percent is above 50%")
-
-        if df['Receipts_Uploaded'][0] == 0:
-            reasons.append("Missing receipts")
-
-        for i in [1, 2, 3]:
-            if df[f'Deviation_{i}'][0] > 1000:
-                reasons.append(f"Large expense deviation in Phase {i}")
-
-        if (df['req_diff_1_2'][0] > 2000) or (df['req_diff_2_3'][0] > 2000):
-            reasons.append("Non-linear request jump between phases")
+        # ✨ Human-readable explanation logic
+        explanation = ""
+        if prediction == 1:
+            explanation = "🚨 This NGO is flagged as potentially fraudulent due to unusual spending behavior."
+        elif ml_input["Receipts_Uploaded"] == 0:
+            explanation = "⚠️ Heads up! This NGO didn’t upload receipts, but their spending matches the donation milestones. We suggest caution or verifying before donating."
+        else:
+            explanation = "✅ This NGO's spending matches the expected milestones and receipts are uploaded."
 
         return jsonify({
             'is_fraud': int(prediction),
-            'reasons': reasons if prediction == 1 else []
+            'message': explanation,
+            'ml_input': ml_input
         })
 
     except Exception as e:
@@ -67,3 +71,4 @@ def predict():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
